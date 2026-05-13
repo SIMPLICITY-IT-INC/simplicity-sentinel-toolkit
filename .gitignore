@@ -1,0 +1,16 @@
+# PowerShell
+*.ps1.bak
+
+# Generated assessment output (per-customer; do not commit)
+output/results.csv
+output/results-*.csv
+output/*.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

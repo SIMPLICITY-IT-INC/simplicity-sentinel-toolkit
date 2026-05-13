@@ -1,0 +1,33 @@
+Simplicity IT Sentinel to Defender XDR Migration Toolkit
+=========================================================
+
+This toolkit incorporates code from the Microsoft Azure-Sentinel
+community repository, specifically Mario Cuomo's Defender Adoption
+Helper script:
+
+    https://github.com/mariocuomo/Azure-Sentinel/tree/master/Tools/Sentinel-Defender-Helper-Script/New%20Version
+
+Original copyright: Microsoft Corporation. Original license: MIT.
+Original author of the bundled script: Mario Cuomo, Microsoft Security.
+
+Files retained verbatim from the upstream project, with original
+copyright headers preserved:
+
+  src/DefenderAdoptionHelper.ps1
+  config/sentinelEnvironments.json
+  output/dashboard.html
+
+Files net-new under this fork, copyright Simplicity IT Inc., 2026,
+licensed under the same MIT terms as the upstream:
+
+  src/SimplicityWorkbooksInventory.ps1     (planned)
+  src/SimplicityPlaybookInventory.ps1      (planned)
+  src/SimplicityHuntingQueryInventory.ps1  (planned)
+  src/SimplicityWatchlistInventory.ps1     (planned)
+  src/SimplicityConnectorMap.ps1           (planned)
+  src/Run-FullAssessment.ps1               (planned)
+  config/defenderXdrEquivalenceMap.json    (planned)
+
+We invite contributions back to Mario's upstream project where the
+extensions make sense in his repo's scope. Use of this fork is not
+required to use the upstream tool.

@@ -1,0 +1,74 @@
+{
+  "_comment": "Maps Microsoft Sentinel data-connector kinds to their Microsoft Defender XDR equivalent. Used by SimplicityConnectorMap.ps1. Add entries here when you encounter a connector kind we have not mapped yet, then file a PR.",
+
+  "OfficeATP": {
+    "defenderXdrEquivalent": "Defender for Office 365",
+    "migrationPath": "automatic",
+    "notes": "Native in unified Defender XDR portal. No action."
+  },
+  "OfficeIRM": {
+    "defenderXdrEquivalent": "Microsoft Purview Insider Risk",
+    "migrationPath": "stays_in_log_analytics",
+    "notes": "Continues to write to Log Analytics; surfaced in Purview portal not Defender XDR."
+  },
+  "MicrosoftThreatProtection": {
+    "defenderXdrEquivalent": "Defender XDR core",
+    "migrationPath": "automatic",
+    "notes": "MDE incidents and alerts. Native in unified Defender XDR portal."
+  },
+  "MicrosoftCloudAppSecurity": {
+    "defenderXdrEquivalent": "Defender for Cloud Apps",
+    "migrationPath": "automatic",
+    "notes": "Native in unified Defender XDR portal."
+  },
+  "AzureActiveDirectory": {
+    "defenderXdrEquivalent": "Microsoft Entra ID Protection",
+    "migrationPath": "automatic",
+    "notes": "Identity Protection signals surface in unified portal."
+  },
+  "AzureActivity": {
+    "defenderXdrEquivalent": "no_mapping_available",
+    "migrationPath": "stays_in_log_analytics",
+    "notes": "No native Defender XDR equivalent. Keep in Log Analytics for compliance / audit retention."
+  },
+  "AzureSecurityCenter": {
+    "defenderXdrEquivalent": "Defender for Cloud",
+    "migrationPath": "automatic",
+    "notes": "Defender for Cloud alerts surface in unified portal."
+  },
+  "MicrosoftDefenderAdvancedThreatProtection": {
+    "defenderXdrEquivalent": "Defender for Endpoint",
+    "migrationPath": "automatic",
+    "notes": "Defender for Endpoint native in unified portal."
+  },
+  "AzureAdvancedThreatProtection": {
+    "defenderXdrEquivalent": "Defender for Identity",
+    "migrationPath": "automatic",
+    "notes": "Defender for Identity alerts surface in unified portal."
+  },
+  "ThreatIntelligence": {
+    "defenderXdrEquivalent": "Threat Intelligence (Defender)",
+    "migrationPath": "manual_review",
+    "notes": "Threat intel platform connector requires per-feed reauth + scope review during cutover."
+  },
+  "ThreatIntelligenceTaxii": {
+    "defenderXdrEquivalent": "Threat Intelligence (Defender)",
+    "migrationPath": "manual_review",
+    "notes": "TAXII feeds may need re-onboarding. Validate post-cutover."
+  },
+  "AmazonWebServicesS3": {
+    "defenderXdrEquivalent": "no_mapping_available",
+    "migrationPath": "stays_in_log_analytics",
+    "notes": "Third-party log source. Stays in Log Analytics for hunting; no Defender XDR view."
+  },
+  "GoogleCloudPlatformProjects": {
+    "defenderXdrEquivalent": "no_mapping_available",
+    "migrationPath": "stays_in_log_analytics",
+    "notes": "Third-party log source. Stays in Log Analytics for hunting."
+  },
+  "GenericUI": {
+    "defenderXdrEquivalent": "no_mapping_available",
+    "migrationPath": "case_by_case",
+    "notes": "Generic UI connector covers ad-hoc data sources. Review each instance."
+  }
+}
