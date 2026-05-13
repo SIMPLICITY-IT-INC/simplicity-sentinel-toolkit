@@ -103,10 +103,37 @@ script invokes them in order.
 | `src/SimplicityHuntingQueryInventory.ps1` | Enumerate saved hunting queries; syntactic compatibility check against unified Defender XDR query language | planned |
 | `src/SimplicityWatchlistInventory.ps1` | Enumerate watchlists; classify post-migration validity | planned |
 | `src/SimplicityConnectorMap.ps1` | Enumerate active connectors; map each to its Defender XDR equivalent or flag as Log-Analytics-only | planned |
-| `src/Run-FullAssessment.ps1` | Orchestrator: runs all modules, merges CSV, opens dashboard | planned |
+| `src/Run-FullAssessment.ps1` | Orchestrator: runs all modules, merges CSV, opens dashboard | shipped |
+| `src/Augment-Results.ps1` | Local AI augmenter: CSV + Anthropic API key, produces 4 customer deliverables (executive summary, Day 1 baseline, rule porting checklist, gap register) + a self-contained HTML brief. Offline / air-gapped alternative to SimpleChannel's web UI. | shipped |
 
 Planned modules ship in subsequent releases. The upstream Mario module
 works standalone today.
+
+## Two ways to run the AI augmenter
+
+After the orchestrator writes `output/results.csv`, you have two
+options for producing customer-facing deliverables:
+
+**Option A: SimpleChannel web UI** (recommended for delivery teams):
+
+1. Sign in at `https://channel.simpleintelligence.io/`.
+2. Navigate to **Admin > Sentinel Readiness Augmenter**.
+3. Paste the CSV. Add optional customer-context note. Click run.
+4. Download the self-contained HTML brief.
+
+Audit trail (`McpAudit`), quota gates, multi-user access, no per-engineer
+API key distribution.
+
+**Option B: local CLI** (recommended for air-gapped / scripted use):
+
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+.\src\Augment-Results.ps1 -CsvFile .\output\results.csv -CustomerHint "Acme Health"
+```
+
+Writes all four deliverables next to the CSV, plus
+`sentinel-readiness-brief.html`. No web app, no auth, runs offline if
+the Anthropic API endpoint is reachable.
 
 ## Contributing
 

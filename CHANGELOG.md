@@ -10,6 +10,11 @@
   Adoption Helper (MIT, Microsoft Corporation).
 - `Run-FullAssessment.ps1` orchestrator (runs upstream module today,
   routes to extension modules as they ship).
+- `Augment-Results.ps1` local AI augmenter: PowerShell script that
+  calls the Anthropic API directly with the same prompt as the
+  SimpleChannel-hosted augmenter, writes four deliverables and a
+  self-contained HTML brief next to the input CSV. Offline /
+  air-gapped alternative to the web UI.
 - `SimplicityConnectorMap.ps1` (stub): connector-to-Defender-XDR
   equivalence inventory. CSV row schema is stable; integration test
   against a live tenant pending.
