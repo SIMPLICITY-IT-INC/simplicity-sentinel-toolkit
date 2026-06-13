@@ -17,9 +17,25 @@ for Microsoft's own statement of the dual-permission requirement.
 
 | File | Purpose |
 |---|---|
-| `gdap-relationship-spec.json` | Role list + duration + JIT note; not a deployable template, but the spec the partner uses to fill in the Partner Center New GDAP Request form, and the source-of-truth record for the engagement scoping notes |
+| `gdap-relationship-spec.json` | Role list + duration + JIT note; the spec the partner uses to fill in the Partner Center New GDAP Request form, and the source-of-truth record for the engagement scoping notes |
+| `New-GdapRelationship.ps1` | One-command GDAP relationship issuance via Microsoft Graph. Reads the spec, prompts for the Simplicity IT Partner Center admin sign-in, prints the acceptance URL for the customer's Global Administrator. Requires `Microsoft.Graph.Identity.Partner` PowerShell module |
 | `CUSTOMER-DEPLOYMENT.md` | One-pager for the customer's Global Administrator to follow when accepting the GDAP relationship |
 | `README.md` | This file |
+
+## Quick start (per customer engagement)
+
+```powershell
+# 1. From the delivery team's terminal:
+Install-Module Microsoft.Graph.Identity.Partner -Scope CurrentUser  # one-time
+cd assets/gdap-onboarding-template
+.\New-GdapRelationship.ps1 -CustomerName "Sentinel-to-Defender Migration - <CustomerLegalName>"
+
+# 2. Email the printed acceptance URL to the customer's Global Admin
+#    (with CUSTOMER-DEPLOYMENT.md attached as the step-by-step).
+# 3. Customer accepts; verify status from your terminal:
+Connect-MgGraph -Scopes "DelegatedAdminRelationship.Read.All"
+Get-MgTenantRelationshipDelegatedAdminRelationship -DelegatedAdminRelationshipId <id-from-step-1>
+```
 
 ## For the Simplicity IT delivery team
 
