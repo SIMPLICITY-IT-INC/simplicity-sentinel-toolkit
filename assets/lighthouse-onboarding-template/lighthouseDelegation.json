@@ -25,7 +25,7 @@
     },
     "managedByTenantId": {
       "type": "string",
-      "defaultValue": "<simplicity-it-tenant-id>",
+      "defaultValue": "bece0e7c-8af9-42d9-9bce-e626bf5d42ea",
       "metadata": {
         "description": "Simplicity IT Inc. Entra tenant ID. Replaced at template-publish time with the production value."
       }
@@ -34,19 +34,19 @@
       "type": "array",
       "defaultValue": [
         {
-          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalId": "6b5f6004-93eb-4e07-a63d-ce8290dcb30a",
           "principalIdDisplayName": "Simplicity IT Sentinel Delivery (security group)",
           "roleDefinitionId": "ab8e14d6-4a74-4a29-9ba8-549422addade",
           "_roleDefinitionDisplayName": "Microsoft Sentinel Contributor"
         },
         {
-          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalId": "6b5f6004-93eb-4e07-a63d-ce8290dcb30a",
           "principalIdDisplayName": "Simplicity IT Sentinel Delivery (security group)",
           "roleDefinitionId": "87a39d53-fc1b-424a-814c-f7e04687dc9e",
           "_roleDefinitionDisplayName": "Logic App Contributor"
         },
         {
-          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalId": "6b5f6004-93eb-4e07-a63d-ce8290dcb30a",
           "principalIdDisplayName": "Simplicity IT Sentinel Delivery (security group)",
           "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7",
           "_roleDefinitionDisplayName": "Reader (subscription-wide; for connector dependency inspection)"

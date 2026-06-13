@@ -9,22 +9,22 @@
       "value": "Delegated access for the Simplicity IT Inc. delivery team to perform the pre-migration assessment, AI-driven remediation, and cutover for the customer's Microsoft Sentinel workspace. Access is removed by the customer on Day 7 as a deliverable line item."
     },
     "managedByTenantId": {
-      "value": "<simplicity-it-tenant-id>"
+      "value": "bece0e7c-8af9-42d9-9bce-e626bf5d42ea"
     },
     "authorizations": {
       "value": [
         {
-          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalId": "6b5f6004-93eb-4e07-a63d-ce8290dcb30a",
           "principalIdDisplayName": "Simplicity IT Sentinel Delivery",
           "roleDefinitionId": "ab8e14d6-4a74-4a29-9ba8-549422addade"
         },
         {
-          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalId": "6b5f6004-93eb-4e07-a63d-ce8290dcb30a",
           "principalIdDisplayName": "Simplicity IT Sentinel Delivery",
           "roleDefinitionId": "87a39d53-fc1b-424a-814c-f7e04687dc9e"
         },
         {
-          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalId": "6b5f6004-93eb-4e07-a63d-ce8290dcb30a",
           "principalIdDisplayName": "Simplicity IT Sentinel Delivery",
           "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7"
         }
