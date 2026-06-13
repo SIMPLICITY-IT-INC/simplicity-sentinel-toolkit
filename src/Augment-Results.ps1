@@ -77,17 +77,26 @@ if ($csvText.Length -gt 500000) {
 $customerLine = if ($CustomerHint) { "Customer context: $CustomerHint." } else { "Customer context: not provided." }
 
 $systemPrompt = @"
-You are a senior Microsoft Sentinel to Defender XDR migration architect at Simplicity IT, a Microsoft Solutions Partner. You receive raw CSV output from an open-source pre-migration assessment tool and produce four polished customer deliverables.
+You are a senior Microsoft Sentinel to Defender XDR migration architect at Simplicity IT, a Microsoft Solutions Partner. You receive raw CSV output from an open-source pre-migration assessment tool and produce five customer-ready deliverables, including a per-finding enrichment that is structured for downstream LLM-driven remediation.
+
+The CSV uses the v2 per-finding schema (locked 2026-06-12): every WARNING row carries a stable FindingId column plus CurrentValue, ExpectedValue, SeverityRationale, and RemediationActionId columns. You must echo these back verbatim in enrichedFindings so the downstream remediation pipeline can bind to them.
 
 DELIVERABLES, in priority order:
 
-1. executiveSummary: 3 to 4 paragraphs aimed at the customer's CISO. Plain English, no jargon. Cover: current state, headline risks, what Simplicity IT will fix during the 7-day migration, post-migration posture.
+1. executiveSummary: 3 to 4 paragraphs aimed at the customer's CISO. Plain English, no jargon. Cover: current state, headline risks, what Simplicity IT will fix during the 7-day migration, post-migration posture. State the March 31, 2027 unified-portal cutover deadline once, plainly, with no scaremongering.
 
-2. day1Baseline: engineer-facing baseline document. Markdown headings: Workspace inventory, Analytics rules summary, Automation rules summary, Retention posture, Identified blockers, Recommended pre-migration cleanup.
+2. day1Baseline: engineer-facing baseline. Markdown headings: Workspace inventory, Analytics rules summary, Automation rules summary, Retention posture, Identified blockers, Recommended pre-migration cleanup.
 
 3. rulePortingChecklist: Day 3 runbook. Numbered list of analytics rules flagged WARNING or INFORMATIONAL, each with: rule name, current state, action required, estimated minutes.
 
 4. gapRegister: array of structured gaps. Each entry classifies as must_fix (blocks cutover), nice_to_have (post-cutover hardening), or informational (no action).
+
+5. enrichedFindings: per-finding remediation context structured for downstream LLM execution. ONE ENTRY PER WARNING ROW IN THE CSV. Each entry must:
+   - echo findingId, remediationActionId, currentValue, expectedValue, severityRationale verbatim from the matching CSV row
+   - add humanContext (1 to 2 sentences explaining the finding to a SOC engineer who hasn't seen this customer before)
+   - add riskIfIgnored (1 sentence on the operational impact if this is left unremediated through cutover)
+   - add recommendedAction (1 to 3 sentences on the concrete next step, referencing the remediationActionId when one of the documented action tokens is present)
+   - add automatable (boolean: true if remediationActionId is one of automation.trigger.title-rewrite, automation.condition.provider-remove, analytics.incident-reopening.disable; false otherwise)
 
 OUTPUT FORMAT: JSON only, no prose preamble. Schema:
 {
@@ -95,12 +104,14 @@ OUTPUT FORMAT: JSON only, no prose preamble. Schema:
   "day1Baseline": "string (markdown with ## headings)",
   "rulePortingChecklist": "string (markdown numbered list)",
   "gapRegister": [{"item": "string", "category": "must_fix"|"nice_to_have"|"informational", "rationale": "string", "estimatedMinutes": number}],
+  "enrichedFindings": [{"findingId": "string", "ruleOrSubject": "string", "section": "string", "remediationActionId": "string", "currentValue": "string", "expectedValue": "string", "severityRationale": "string", "humanContext": "string", "riskIfIgnored": "string", "recommendedAction": "string", "automatable": boolean}],
   "rawSummaryStats": {"totalFindings": number, "okCount": number, "warningCount": number, "informationalCount": number}
 }
 
 CONSTRAINTS:
 - Never use em-dashes (one of these: U+2014) or en-dashes (U+2013). Use colons, commas, periods, parentheses.
 - Be specific. Reference actual rule names, table names, check categories from the CSV.
+- Echo findingId and remediationActionId VERBATIM from the CSV. Do not invent new tokens. Do not modify a findingId; the downstream remediation tool keys on it.
 - Match Simplicity IT brand voice: trusted advisor, consultative, regulated-industry-aware, no marketing fluff.
 "@
 
@@ -155,6 +166,8 @@ $baselinePath = Join-Path $outputDir "day1-baseline.md"
 $checklistPath = Join-Path $outputDir "rule-porting-checklist.md"
 $gapsPath = Join-Path $outputDir "gap-register.csv"
 $briefPath = Join-Path $outputDir "sentinel-readiness-brief.html"
+$enrichedJsonPath = Join-Path $outputDir "enriched-findings.json"
+$enrichedCsvPath = Join-Path $outputDir "enriched-findings.csv"
 
 Set-Content -Path $execPath -Value $parsed.executiveSummary -Encoding UTF8
 Set-Content -Path $baselinePath -Value $parsed.day1Baseline -Encoding UTF8
@@ -163,6 +176,18 @@ Set-Content -Path $checklistPath -Value $parsed.rulePortingChecklist -Encoding U
 # Gap register as CSV.
 $parsed.gapRegister | Select-Object item, category, rationale, estimatedMinutes |
     Export-Csv -Path $gapsPath -NoTypeInformation -Encoding UTF8
+
+# Per-finding enrichment artifacts (v2). JSON is what the LLM remediation
+# pipeline consumes; CSV is the human-reviewable form.
+if ($parsed.enrichedFindings) {
+    $parsed.enrichedFindings | ConvertTo-Json -Depth 8 |
+        Set-Content -Path $enrichedJsonPath -Encoding UTF8
+    $parsed.enrichedFindings |
+        Select-Object findingId, ruleOrSubject, section, remediationActionId,
+                      currentValue, expectedValue, severityRationale,
+                      humanContext, riskIfIgnored, recommendedAction, automatable |
+        Export-Csv -Path $enrichedCsvPath -NoTypeInformation -Encoding UTF8
+}
 
 # Build the self-contained HTML brief, same shape as the SimpleChannel
 # web version.
@@ -234,6 +259,32 @@ foreach ($g in $informational) {
 
 $customerHintLine = if ($CustomerHint) { "Customer context: $(ConvertTo-HtmlEscaped($CustomerHint)) &middot; Generated $generatedAt" } else { "Generated $generatedAt" }
 
+# Per-finding enrichment rows (v2). Rendered as expandable sections in the
+# brief; the same data also lands in enriched-findings.json for the LLM
+# remediation pipeline.
+$findingsRows = @()
+if ($parsed.enrichedFindings) {
+    foreach ($f in $parsed.enrichedFindings) {
+        $autoBadge = if ($f.automatable) { "<span style='background:#46B491;color:#fff;padding:1pt 6pt;font-size:8pt;border-radius:2pt;'>auto</span>" } else { "<span style='background:#666;color:#fff;padding:1pt 6pt;font-size:8pt;border-radius:2pt;'>manual</span>" }
+        $findingsRows += @"
+<div class='finding'>
+  <div class='finding-head'>
+    <div><strong>$(ConvertTo-HtmlEscaped($f.ruleOrSubject))</strong> <span class='dim'>&middot; $(ConvertTo-HtmlEscaped($f.section))</span></div>
+    <div>$autoBadge <span class='action-id'>$(ConvertTo-HtmlEscaped($f.remediationActionId))</span></div>
+  </div>
+  <div class='finding-grid'>
+    <div class='cell'><div class='cell-label'>Current</div><div>$(ConvertTo-HtmlEscaped($f.currentValue))</div></div>
+    <div class='cell'><div class='cell-label'>Expected</div><div>$(ConvertTo-HtmlEscaped($f.expectedValue))</div></div>
+  </div>
+  <div class='cell'><div class='cell-label'>Why this matters</div><div>$(ConvertTo-HtmlEscaped($f.severityRationale)) $(ConvertTo-HtmlEscaped($f.humanContext))</div></div>
+  <div class='cell'><div class='cell-label'>Risk if ignored</div><div>$(ConvertTo-HtmlEscaped($f.riskIfIgnored))</div></div>
+  <div class='cell'><div class='cell-label'>Recommended action</div><div>$(ConvertTo-HtmlEscaped($f.recommendedAction))</div></div>
+  <div class='finding-id'>findingId: <code>$(ConvertTo-HtmlEscaped($f.findingId))</code></div>
+</div>
+"@
+    }
+}
+
 $html = @"
 <!DOCTYPE html>
 <html lang="en">
@@ -266,6 +317,14 @@ $html = @"
   .stat .label { font-size: 8.5pt; color: #666; text-transform: uppercase; letter-spacing: 1pt; }
   .stat .num { font-size: 24pt; font-weight: 700; line-height: 1; }
   .footer { margin-top: 20pt; padding-top: 10pt; border-top: 0.5pt solid #ddd; font-size: 8pt; color: #666; display: flex; justify-content: space-between; }
+  .finding { border: 0.5pt solid #ddd; border-left: 3pt solid #DC740E; padding: 10pt 12pt; margin: 8pt 0; page-break-inside: avoid; }
+  .finding-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8pt; font-size: 10pt; }
+  .finding-head .action-id { font-family: "Consolas", monospace; font-size: 8.5pt; background: #f4f6f9; padding: 1pt 6pt; border-radius: 2pt; color: #182C43; }
+  .finding-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; margin-bottom: 6pt; }
+  .cell { margin-bottom: 6pt; }
+  .cell-label { font-size: 7.5pt; color: #46B491; text-transform: uppercase; letter-spacing: 0.5pt; margin-bottom: 2pt; }
+  .finding-id { font-size: 7.5pt; color: #666; margin-top: 6pt; padding-top: 4pt; border-top: 0.5pt dotted #ddd; }
+  .finding-id code { font-family: "Consolas", monospace; }
 </style></head>
 <body>
 <div class="brand-bar">
@@ -273,8 +332,8 @@ $html = @"
   <div class="doc-type">SENTINEL READINESS BRIEF</div>
 </div>
 
-<h1>Sentinel <span class="accent">to</span> Defender XDR readiness</h1>
-<p class="subtitle">Day 1 baseline, executive summary, and rule porting plan.</p>
+<h1>Pre-Migration <span class="accent">Readiness</span> Report</h1>
+<p class="subtitle">Sentinel to Defender XDR: per-finding context for the 7-day migration.</p>
 <p class="url-line">$customerHintLine</p>
 
 <h2>Assessment summary</h2>
@@ -304,7 +363,9 @@ $(if ($niceToHave.Count -gt 0) { "<h3>Nice to have, post-cutover ($($niceToHave.
 
 $(if ($informational.Count -gt 0) { "<h3>Informational ($($informational.Count))</h3><table><thead><tr><th style='width:30%'>Item</th><th>Note</th><th style='width:12%;text-align:right'>Effort</th></tr></thead><tbody>$($infoRows -join '')</tbody></table>" } else { "" })
 
-<div class="footer"><span>Simplicity IT Inc. &middot; Sentinel to Defender XDR readiness brief</span><span>simplicityitinc.com</span></div>
+$(if ($findingsRows.Count -gt 0) { "<h2>Per-finding remediation context</h2><p class='dim'>One entry per WARNING from the assessment. Each entry pairs the observed state with the Defender requirement, a plain-English risk note, and the recommended remediation action. The <strong>auto</strong> badge indicates the fix is mechanical and can be executed by the AI-driven remediation pipeline under the binding safety contract. <strong>manual</strong> findings require customer SOC review.</p>$($findingsRows -join '')" } else { "" })
+
+<div class="footer"><span>Simplicity IT Inc. &middot; Pre-Migration Readiness Report</span><span>simplicityitinc.com</span></div>
 </body></html>
 "@
 
@@ -316,6 +377,10 @@ Write-Host "  $execPath"
 Write-Host "  $baselinePath"
 Write-Host "  $checklistPath"
 Write-Host "  $gapsPath"
+if ($parsed.enrichedFindings) {
+    Write-Host "  $enrichedJsonPath  (input for the LLM remediation pipeline)"
+    Write-Host "  $enrichedCsvPath"
+}
 Write-Host "  $briefPath"
 Write-Host ""
-Write-Host "Open $briefPath in a browser for the full brief; print to PDF for customer handoff." -ForegroundColor Cyan
+Write-Host "Next: render the brief to Pre-Migration-Readiness-Report.pdf via Export-BriefPdf.ps1, OR open $briefPath in a browser and print to PDF." -ForegroundColor Cyan

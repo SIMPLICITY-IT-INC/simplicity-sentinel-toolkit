@@ -32,6 +32,50 @@ param(
 # ---- CSV result collector ----
 $script:results = [System.Collections.Generic.List[PSCustomObject]]::new()
 
+# -----------------------------------------------------------------------------
+# Simplicity IT schema extension (v2, locked 2026-06-12).
+#
+# Adds five remediation-actionable columns to every result row:
+#   FindingId            stable 12-char SHA-256 over Section|SubItem|Environment
+#   CurrentValue         what we observed in the customer environment
+#   ExpectedValue        what Defender requires for clean onboarding
+#   SeverityRationale    one-sentence justification for the status
+#   RemediationActionId  enum token consumed by simplicity-sentinel-remediation
+#                        Apply-Remediation.ps1 (-ExportPackage) and the LLM
+#                        remediation prompt to drive the fix
+#
+# All five default to '' so unmodified upstream call sites keep working.
+# Action tokens currently understood:
+#   automation.trigger.title-rewrite
+#   automation.trigger.fusion-rewrite
+#   automation.trigger.alert-scope-review
+#   automation.condition.provider-remove
+#   automation.condition.description-redesign
+#   automation.condition.updated-by-rewrite
+#   analytics.alert-only.enable-incidents
+#   analytics.incident-reopening.disable
+#   analytics.grouping.accept
+#   analytics.microsoft-incident-creation.deactivate
+#   fusion.disable.accept
+#   tier.basic.upgrade
+#   tier.auxiliary.accept
+#   connector.region.review
+#   access.role.assign
+#   manual.review
+#   none
+#
+# Mario Cuomo's upstream MIT copyright on this file is preserved.
+# -----------------------------------------------------------------------------
+
+function New-FindingId {
+    param([string]$Section, [string]$SubItem, [string]$Environment)
+    $input = "$Section|$SubItem|$Environment"
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($input))
+    $sha.Dispose()
+    ([System.BitConverter]::ToString($bytes) -replace '-', '').Substring(0, 12).ToLowerInvariant()
+}
+
 function Add-Result {
     param(
         [string]$Type,        # env | check | score
@@ -39,25 +83,39 @@ function Add-Result {
         [string]$ResourceGroup = '',
         [string]$SubscriptionId = '',
         [string]$Section = '',
-        [string]$Status = '',  # OK | WARNING
+        [string]$Status = '',  # OK | WARNING | INFORMATIONAL
         [int]$Passed = 0,
         [int]$Total = 0,
         [double]$Percent = 0,
         [string]$Message = '',
-        [string]$SubItem = ''  # rule name or entity name for grouping
+        [string]$SubItem = '',  # rule name or entity name for grouping
+        # v2 (Simplicity IT extension): remediation-actionable per-finding fields
+        [string]$FindingId = '',
+        [string]$CurrentValue = '',
+        [string]$ExpectedValue = '',
+        [string]$SeverityRationale = '',
+        [string]$RemediationActionId = ''
     )
+    if (-not $FindingId -and $Type -eq 'check') {
+        $FindingId = New-FindingId -Section $Section -SubItem $SubItem -Environment $Environment
+    }
     $script:results.Add([PSCustomObject]@{
-        Type           = $Type
-        Environment    = $Environment
-        ResourceGroup  = $ResourceGroup
-        SubscriptionId = $SubscriptionId
-        Section        = $Section
-        Status         = $Status
-        Passed         = $Passed
-        Total          = $Total
-        Percent        = $Percent
-        Message        = $Message
-        SubItem        = $SubItem
+        Type                = $Type
+        Environment         = $Environment
+        ResourceGroup       = $ResourceGroup
+        SubscriptionId      = $SubscriptionId
+        Section             = $Section
+        Status              = $Status
+        Passed              = $Passed
+        Total               = $Total
+        Percent             = $Percent
+        Message             = $Message
+        SubItem             = $SubItem
+        FindingId           = $FindingId
+        CurrentValue        = $CurrentValue
+        ExpectedValue       = $ExpectedValue
+        SeverityRationale   = $SeverityRationale
+        RemediationActionId = $RemediationActionId
     })
 }
 
@@ -97,7 +155,12 @@ function Get-DataLakeRegionCheck {
         Add-Result -Type 'check' -Environment $workspaceName -Section 'Data Lake Region' -Status 'OK' -Message "Workspace region '$location' supports Data Lake"
     } else {
         Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Workspace region '$location' does not support Data Lake"
-        Add-Result -Type 'check' -Environment $workspaceName -Section 'Data Lake Region' -Status 'WARNING' -Message "Workspace region '$location' does not support Data Lake. Consider migrating to a supported region"
+        Add-Result -Type 'check' -Environment $workspaceName -Section 'Data Lake Region' -Status 'WARNING' `
+            -Message "Workspace region '$location' does not support Data Lake. Consider migrating to a supported region" `
+            -CurrentValue "$location" `
+            -ExpectedValue "Region in the Data Lake supported list (see script `$script:dataLakeSupportedRegions)" `
+            -SeverityRationale "Auxiliary tier tables targeted at the Data Lake require a workspace in a Data Lake-supported region; otherwise those tables cannot be promoted post-onboarding." `
+            -RemediationActionId 'connector.region.review'
     }
     return $totalControlsTemp, $passedControlsTemp
 }
@@ -151,7 +214,12 @@ function Get-AnalyticsAnalysis {
     }
     if ($response.properties.enabled) {
         Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Fusion rules will be automatically disabled after Microsoft Sentinel is onboarded in Defender"
-        Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -Message "Fusion rules will be automatically disabled after Microsoft Sentinel is onboarded in Defender"
+        Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' `
+            -Message "Fusion rules will be automatically disabled after Microsoft Sentinel is onboarded in Defender" `
+            -CurrentValue "Fusion engine enabled" `
+            -ExpectedValue "Fusion will be auto-disabled at onboarding; Defender XDR correlation engine takes over" `
+            -SeverityRationale "Customer must accept correlation hand-off to the Defender XDR engine; no functional regression expected, but the change is irreversible at onboarding." `
+            -RemediationActionId 'fusion.disable.accept'
     } else {
         Write-Host "[OK]" -ForegroundColor Green -NoNewline; Write-Host " The Fusion engine is not enabled"
         $passedControlsTemp++
@@ -179,7 +247,12 @@ function Get-AnalyticsAnalysis {
         ## ALERT VISIBILITY
         if (!$rule.properties.incidentConfiguration.createIncident) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " The rule $ruleName doesn't generate incidents"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName -Message "Doesn't generate incidents. Alerts aren't visible in the Defender portal - they appear in SecurityAlerts table in Advanced Hunting"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Doesn't generate incidents. Alerts aren't visible in the Defender portal - they appear in SecurityAlerts table in Advanced Hunting" `
+                -CurrentValue "createIncident = false" `
+                -ExpectedValue "createIncident = true OR explicit acceptance that alerts will live in SecurityAlerts only" `
+                -SeverityRationale "Alert-only rules become silent in the Defender portal post-onboarding; SOC workflow regression unless customer accepts hunting-only visibility." `
+                -RemediationActionId 'analytics.alert-only.enable-incidents'
             $ruleHasIssue = $true
         } else {
             Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'OK' -SubItem $ruleName -Message "Alert visibility configured correctly"
@@ -188,7 +261,12 @@ function Get-AnalyticsAnalysis {
         ## INCIDENT REOPENING
         if ($rule.properties.incidentConfiguration.groupingConfiguration.reopenClosedIncident) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " The rule $ruleName has incident reopening enabled"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName -Message "Incident reopening enabled. Not supported in Defender portal - new incidents are created instead"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Incident reopening enabled. Not supported in Defender portal - new incidents are created instead" `
+                -CurrentValue "reopenClosedIncident = true" `
+                -ExpectedValue "reopenClosedIncident = false" `
+                -SeverityRationale "After onboarding, Defender XDR creates a NEW incident instead of reopening the closed one; SOC playbooks that key off reopened-incident IDs will silently break." `
+                -RemediationActionId 'analytics.incident-reopening.disable'
             $ruleHasIssue = $true
         } else {
             Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'OK' -SubItem $ruleName -Message "No incident reopening"
@@ -197,7 +275,12 @@ function Get-AnalyticsAnalysis {
         ## ALERT GROUPING
         if ($rule.properties.incidentConfiguration.groupingConfiguration.enabled) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " The rule $ruleName has alert grouping enabled"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName -Message "Alert grouping enabled. After onboarding, Defender XDR engine fully controls grouping and merging"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Alert grouping enabled. After onboarding, Defender XDR engine fully controls grouping and merging" `
+                -CurrentValue "Custom alert grouping configured" `
+                -ExpectedValue "Customer-accepted Defender XDR-controlled grouping (no custom override)" `
+                -SeverityRationale "Customer should be informed that custom grouping rules are superseded by XDR correlation; behavior may differ from Sentinel-era grouping." `
+                -RemediationActionId 'analytics.grouping.accept'
             $ruleHasIssue = $true
         } else {
             Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'OK' -SubItem $ruleName -Message "No custom alert grouping"
@@ -206,7 +289,12 @@ function Get-AnalyticsAnalysis {
         ## MICROSOFT INCIDENT CREATION RULES
         if ($rule.kind -eq "MicrosoftSecurityIncidentCreation") {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " The rule $ruleName is a Microsoft incident creation rule"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName -Message "Microsoft incident creation rule - will be deactivated after onboarding"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Analytics' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Microsoft incident creation rule - will be deactivated after onboarding" `
+                -CurrentValue "MicrosoftIncidentCreation analytics rule active" `
+                -ExpectedValue "Rule deactivated; Defender XDR handles Microsoft-source incident creation natively" `
+                -SeverityRationale "Auto-deactivated at onboarding; flag to confirm SOC awareness so they don't chase a missing rule." `
+                -RemediationActionId 'analytics.microsoft-incident-creation.deactivate'
             $ruleHasIssue = $true
         }
 
@@ -226,7 +314,12 @@ function Get-TableTiersAnalysis {
         $totalControlsTemp++
         if ($plan -eq "Basic") {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " $tableName [$plan] - must be converted to Analytics or Auxiliary tier (Data Lake) when transitioning to Defender"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Table Tiers' -Status 'WARNING' -SubItem $tableName -Message "Uses Basic tier. Must be converted to Analytics or Auxiliary tier (Data Lake) when transitioning to Defender"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Table Tiers' -Status 'WARNING' -SubItem $tableName `
+                -Message "Uses Basic tier. Must be converted to Analytics or Auxiliary tier (Data Lake) when transitioning to Defender" `
+                -CurrentValue "tier = Basic" `
+                -ExpectedValue "tier = Analytics OR Auxiliary (Data Lake)" `
+                -SeverityRationale "Basic-tier tables are not queryable by Defender XDR analytics post-onboarding; customer must choose Analytics (higher cost, full query) or Auxiliary (lower cost, hunting only)." `
+                -RemediationActionId 'tier.basic.upgrade'
         } elseif ($plan -eq "Auxiliary") {
             Write-Host "[INFORMATIONAL]" -ForegroundColor Cyan -NoNewline; Write-Host " $tableName [$plan] - will become a data lake table when transitioning to Defender"
             $passedControlsTemp++
@@ -269,33 +362,63 @@ function Get-AutomationAnalysis {
         $hasIssue = $false
         if ($incidentTitle) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Automation rule ${ruleName}: change Incident Title to Analytics Rule Name"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName -Message "Change trigger from Incident Title to Analytics Rule Name"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Change trigger from Incident Title to Analytics Rule Name" `
+                -CurrentValue "Condition matches IncidentTitle" `
+                -ExpectedValue "Condition matches IncidentRelatedAnalyticRuleIds (specific analytics rule IDs)" `
+                -SeverityRationale "Defender XDR may rename incidents at correlation time; title-based conditions silently stop matching. Apply-Remediation.ps1 can rewrite this automatically when title patterns resolve to specific rules." `
+                -RemediationActionId 'automation.trigger.title-rewrite'
             $hasIssue = $true
         }
         if ($incidentProvider) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Automation rule ${ruleName}: change Incident Provider to Alert Product Name"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName -Message "Change trigger from Incident Provider to Alert Product Name"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Change trigger from Incident Provider to Alert Product Name" `
+                -CurrentValue "Condition matches IncidentProviderName" `
+                -ExpectedValue "Condition removed (property retired) OR rewritten to match on AlertProductName / AlertSource" `
+                -SeverityRationale "All incidents arrive with provider Microsoft XDR after onboarding; the property no longer discriminates. Apply-Remediation.ps1 can remove this condition automatically." `
+                -RemediationActionId 'automation.condition.provider-remove'
             $hasIssue = $true
         }
         if ($fusionMentioned) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Automation rule ${ruleName}: triggered by Fusion"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName -Message "Triggered by Fusion incidents. Fusion will be disabled after onboarding"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Triggered by Fusion incidents. Fusion will be disabled after onboarding" `
+                -CurrentValue "Condition references Fusion-source incidents" `
+                -ExpectedValue "Condition rewritten to match the equivalent Defender XDR correlation outputs, OR the automation rule retired if the playbook depended on Fusion's specific signal" `
+                -SeverityRationale "Fusion is disabled at onboarding; rules keyed off Fusion-source incidents never trigger again. Requires customer SOC review of the playbook intent." `
+                -RemediationActionId 'automation.trigger.fusion-rewrite'
             $hasIssue = $true
         }
         if ($usesDescription) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Automation rule ${ruleName}: uses Description field as condition"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName -Message "Uses Description field as condition. Field removed from SecurityIncident after onboarding"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Uses Description field as condition. Field removed from SecurityIncident after onboarding" `
+                -CurrentValue "Condition matches IncidentDescription" `
+                -ExpectedValue "Condition rebuilt on a surviving property (IncidentRelatedAnalyticRuleIds, severity, tactics)" `
+                -SeverityRationale "The SecurityIncident Description field is removed after Defender portal onboarding; conditions referencing it silently stop matching. No mechanical equivalent; requires customer SOC redesign." `
+                -RemediationActionId 'automation.condition.description-redesign'
             $hasIssue = $true
         }
         if ($usesUpdatedBy365) {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Automation rule ${ruleName}: uses Updated By = Microsoft 365 Defender"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName -Message "Uses Updated By = Microsoft 365 Defender. Value becomes Other after onboarding"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Uses Updated By = Microsoft 365 Defender. Value becomes Other after onboarding" `
+                -CurrentValue "Condition matches UpdatedBy = 'Microsoft 365 Defender'" `
+                -ExpectedValue "Condition rewritten to match UpdatedBy = 'Other' OR removed entirely" `
+                -SeverityRationale "Post-onboarding, the UpdatedBy value changes; condition stops matching. Straightforward find-and-replace once the customer confirms intent." `
+                -RemediationActionId 'automation.condition.updated-by-rewrite'
             $hasIssue = $true
         }
         ## ALERT TRIGGER CHECK
         if ($isEnabled -and $triggersOn -eq "Alerts") {
             Write-Host "[WARNING]" -ForegroundColor DarkYellow -NoNewline; Write-Host " Automation rule ${ruleName}: uses alert trigger - will only act on Sentinel alerts after onboarding"
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName -Message "Uses alert trigger. After onboarding, alert triggers act only on Sentinel alerts"
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Automation' -Status 'WARNING' -SubItem $ruleName `
+                -Message "Uses alert trigger. After onboarding, alert triggers act only on Sentinel alerts" `
+                -CurrentValue "triggersOn = Alerts" `
+                -ExpectedValue "Confirmed scope: rule continues to fire on Sentinel alerts only, OR switched to triggersOn = Incidents to cover the unified alert stream" `
+                -SeverityRationale "Alert-trigger automation rules no longer see Defender XDR-source alerts after onboarding; customer SOC must confirm whether the rule should be widened or remain scoped to Sentinel alerts." `
+                -RemediationActionId 'automation.trigger.alert-scope-review'
             $hasIssue = $true
         }
         if (!$hasIssue) {
@@ -426,12 +549,22 @@ foreach ($env in $environments) {
         $errBody = $_.ErrorDetails.Message | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($statusCode -eq 403 -or $statusCode -eq 401) {
             Write-Host "   [ERROR] No Sentinel Reader access on $workspaceName. Skipping." -ForegroundColor Red
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Access' -Status 'WARNING' -Message "The app does not have Microsoft Sentinel Reader role on this workspace. Assign the role and retry."
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Access' -Status 'WARNING' `
+                -Message "The app does not have Microsoft Sentinel Reader role on this workspace. Assign the role and retry." `
+                -CurrentValue "No Microsoft Sentinel Reader role assignment for the calling identity" `
+                -ExpectedValue "Microsoft Sentinel Reader (minimum) assigned to the calling app or user identity, scoped to the workspace" `
+                -SeverityRationale "Assessment cannot complete without read access; this is a pre-requisite, not a Defender-portal compatibility issue." `
+                -RemediationActionId 'access.role.assign'
             Add-Result -Type 'score' -Environment $workspaceName -Section 'Final' -Passed 0 -Total 1 -Percent 0
             $accessOk = $false
         } elseif ($errBody.error.code -eq "SolutionNotActive" -or ($statusCode -eq 400 -and $errBody.error.message -match "not onboarded to Microsoft Sentinel")) {
             Write-Host "   [ERROR] Microsoft Sentinel is not installed on $workspaceName. Skipping." -ForegroundColor Red
-            Add-Result -Type 'check' -Environment $workspaceName -Section 'Access' -Status 'WARNING' -Message "Microsoft Sentinel is not installed on this workspace. Enable Sentinel and retry."
+            Add-Result -Type 'check' -Environment $workspaceName -Section 'Access' -Status 'WARNING' `
+                -Message "Microsoft Sentinel is not installed on this workspace. Enable Sentinel and retry." `
+                -CurrentValue "SecurityInsights solution not present on workspace" `
+                -ExpectedValue "Microsoft Sentinel (SecurityInsights) enabled on the workspace" `
+                -SeverityRationale "Without Sentinel installed, there is nothing to assess; either the workspace was misidentified or Sentinel needs to be enabled before the engagement begins." `
+                -RemediationActionId 'manual.review'
             Add-Result -Type 'score' -Environment $workspaceName -Section 'Final' -Passed 0 -Total 1 -Percent 0
             $accessOk = $false
         } else {
