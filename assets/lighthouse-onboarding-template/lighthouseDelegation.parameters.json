@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "mspOfferName": {
+      "value": "Sentinel to Defender XDR 1-Week Migration (Simplicity IT Inc.)"
+    },
+    "mspOfferDescription": {
+      "value": "Delegated access for the Simplicity IT Inc. delivery team to perform the pre-migration assessment, AI-driven remediation, and cutover for the customer's Microsoft Sentinel workspace. Access is removed by the customer on Day 7 as a deliverable line item."
+    },
+    "managedByTenantId": {
+      "value": "<simplicity-it-tenant-id>"
+    },
+    "authorizations": {
+      "value": [
+        {
+          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalIdDisplayName": "Simplicity IT Sentinel Delivery",
+          "roleDefinitionId": "ab8e14d6-4a74-4a29-9ba8-549422addade"
+        },
+        {
+          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalIdDisplayName": "Simplicity IT Sentinel Delivery",
+          "roleDefinitionId": "87a39d53-fc1b-424a-814c-f7e04687dc9e"
+        },
+        {
+          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalIdDisplayName": "Simplicity IT Sentinel Delivery",
+          "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7"
+        }
+      ]
+    }
+  }
+}

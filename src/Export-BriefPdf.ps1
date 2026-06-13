@@ -30,7 +30,7 @@
 [CmdletBinding()]
 param(
     [string]$HtmlFile = (Join-Path (Split-Path -Parent $PSScriptRoot) "output\sentinel-readiness-brief.html"),
-    [string]$OutFile
+    [string]$OutFile = (Join-Path (Split-Path -Parent $PSScriptRoot) "output\Pre-Migration-Readiness-Report.pdf")
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +38,9 @@ $ErrorActionPreference = "Stop"
 if (-not (Test-Path $HtmlFile)) {
     throw "Brief HTML not found: $HtmlFile. Run Augment-Results.ps1 first."
 }
+# Default OutFile is Pre-Migration-Readiness-Report.pdf in the output folder
+# (set in the param block). If caller overrode with empty string, fall back
+# to the HTML's basename + .pdf.
 if (-not $OutFile) {
     $OutFile = [System.IO.Path]::ChangeExtension((Resolve-Path $HtmlFile).Path, ".pdf")
 }

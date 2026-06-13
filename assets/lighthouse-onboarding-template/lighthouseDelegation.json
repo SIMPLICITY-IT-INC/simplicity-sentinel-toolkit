@@ -1,0 +1,98 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-08-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "simplicity-it-sentinel-toolkit",
+      "version": "2026-06-12",
+      "note": "Azure Lighthouse delegation for the Sentinel to Defender XDR 1-Week Migration engagement. Grants Simplicity IT Inc. the minimum role set documented in IMPLEMENTATION-GUIDE §2.1 Path A for the engagement window only. Engagement-window enforcement is by retention policy: the customer deletes the registrationAssignment after Day 7 acceptance. There is no automatic time-bound expiry in the Lighthouse ARM contract."
+    }
+  },
+  "parameters": {
+    "mspOfferName": {
+      "type": "string",
+      "defaultValue": "Sentinel to Defender XDR 1-Week Migration (Simplicity IT Inc.)",
+      "metadata": {
+        "description": "Display name of the offer shown in the customer's Service providers blade."
+      }
+    },
+    "mspOfferDescription": {
+      "type": "string",
+      "defaultValue": "Delegated access for the Simplicity IT Inc. delivery team to perform the pre-migration assessment, AI-driven remediation, and cutover for the customer's Microsoft Sentinel workspace. Access is removed by the customer on Day 7 as a deliverable line item.",
+      "metadata": {
+        "description": "Description shown in the customer's Service providers blade."
+      }
+    },
+    "managedByTenantId": {
+      "type": "string",
+      "defaultValue": "<simplicity-it-tenant-id>",
+      "metadata": {
+        "description": "Simplicity IT Inc. Entra tenant ID. Replaced at template-publish time with the production value."
+      }
+    },
+    "authorizations": {
+      "type": "array",
+      "defaultValue": [
+        {
+          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalIdDisplayName": "Simplicity IT Sentinel Delivery (security group)",
+          "roleDefinitionId": "ab8e14d6-4a74-4a29-9ba8-549422addade",
+          "_roleDefinitionDisplayName": "Microsoft Sentinel Contributor"
+        },
+        {
+          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalIdDisplayName": "Simplicity IT Sentinel Delivery (security group)",
+          "roleDefinitionId": "87a39d53-fc1b-424a-814c-f7e04687dc9e",
+          "_roleDefinitionDisplayName": "Logic App Contributor"
+        },
+        {
+          "principalId": "<sit-sentinel-delivery-group-object-id>",
+          "principalIdDisplayName": "Simplicity IT Sentinel Delivery (security group)",
+          "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7",
+          "_roleDefinitionDisplayName": "Reader (subscription-wide; for connector dependency inspection)"
+        }
+      ],
+      "metadata": {
+        "description": "Role assignments delegated to Simplicity IT. The principalId is the object ID of the Simplicity IT Inc. Sentinel Delivery security group in the Simplicity IT tenant. The roleDefinitionId values are the well-known Azure built-in role IDs (Microsoft Sentinel Contributor, Logic App Contributor, Reader). Microsoft Defender XDR Security Administrator is a Microsoft 365 role and is granted separately via the customer's privileged-access policy if Path A is chosen (Lighthouse delegates Azure RBAC only; Defender XDR is a Microsoft 365 surface)."
+      }
+    }
+  },
+  "variables": {
+    "mspRegistrationName": "[guid(parameters('mspOfferName'))]",
+    "mspAssignmentName": "[guid(parameters('mspOfferName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ManagedServices/registrationDefinitions",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('mspRegistrationName')]",
+      "properties": {
+        "registrationDefinitionName": "[parameters('mspOfferName')]",
+        "description": "[parameters('mspOfferDescription')]",
+        "managedByTenantId": "[parameters('managedByTenantId')]",
+        "authorizations": "[parameters('authorizations')]"
+      }
+    },
+    {
+      "type": "Microsoft.ManagedServices/registrationAssignments",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('mspAssignmentName')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedServices/registrationDefinitions/', variables('mspRegistrationName'))]"
+      ],
+      "properties": {
+        "registrationDefinitionId": "[resourceId('Microsoft.ManagedServices/registrationDefinitions/', variables('mspRegistrationName'))]"
+      }
+    }
+  ],
+  "outputs": {
+    "mspOfferName": {
+      "type": "string",
+      "value": "[concat('Managed by ', parameters('mspOfferName'))]"
+    },
+    "authorizations": {
+      "type": "array",
+      "value": "[parameters('authorizations')]"
+    }
+  }
+}
