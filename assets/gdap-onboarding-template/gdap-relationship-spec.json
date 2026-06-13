@@ -1,0 +1,29 @@
+{
+  "$schema": "https://learn.microsoft.com/en-us/partner-center/customers/gdap-introduction",
+  "_comment": "GDAP relationship specification for the Sentinel to Defender XDR 1-Week Migration engagement. Implements Path A's GDAP half (and the only delegation mechanism for the Microsoft 365 / Defender XDR surface). Maps to the Partner Center create-GDAP-relationship workflow at partner.microsoft.com/dashboard/customers (Customers > [Customer name] > Granular delegated admin privileges > New request).",
+  "displayName": "Simplicity IT - Sentinel to Defender XDR Migration",
+  "duration": "P14D",
+  "_duration_comment": "ISO 8601 duration. 14 days covers a 7-day engagement plus a 7-day grace window for Day 7 follow-ups. Maximum permitted by Microsoft is 730 days; we intentionally use the shortest defensible window for security hygiene.",
+  "autoExtendDuration": "PT0S",
+  "_autoExtendDuration_comment": "Disabled. The relationship is one-shot; it does not auto-renew. Day 7 access teardown is a deliverable.",
+  "accessDetails": {
+    "unifiedRoles": [
+      {
+        "roleDefinitionId": "194ae4cb-b126-40b2-bd5b-6091b380977d",
+        "_roleDefinitionName": "Security Administrator",
+        "_why": "Day 6 cutover: 'Connect workspace' click in the Defender portal; analytics rule enable/disable; automation rule edits in the unified portal. Day 7 access teardown validation."
+      },
+      {
+        "roleDefinitionId": "5f2222b1-57c3-48ba-8ad5-d4759f1fde6f",
+        "_roleDefinitionName": "Security Operator",
+        "_why": "Day 1 read-only assessment of the Defender XDR surface; Day 6 parity validation in the unified portal; Day 7 handover walkthrough."
+      },
+      {
+        "roleDefinitionId": "158c047a-c907-4556-b7ef-446551a6b5f7",
+        "_roleDefinitionName": "Cloud Application Administrator",
+        "_why": "Day 5 Logic Apps playbook port: re-authorize external SOAR connectors (ServiceNow, Jira, Teams) in the unified portal."
+      }
+    ]
+  },
+  "_jit_note": "Customers with Microsoft Entra ID P2 should configure these roles as JIT-eligible at the time of accepting the GDAP relationship. JIT-eligible users must request access via the My Access portal, and a customer-side approver (in a JIT approver security group) reviews each request before role activation. This matches the privileged-access model regulated buyers expect. Reference: learn.microsoft.com/en-us/microsoft-365/lighthouse/m365-lighthouse-setup-gdap"
+}

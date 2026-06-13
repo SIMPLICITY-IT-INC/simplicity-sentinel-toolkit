@@ -1,51 +1,45 @@
 <#
 .SYNOPSIS
-    Enumerate Microsoft Sentinel data connectors and map each to its
-    Microsoft Defender XDR equivalent. Flag connectors that have no
-    Defender XDR equivalent (these stay in Log Analytics only post-
-    migration).
+    Connector inventory + Defender XDR equivalence mapping module.
+    Enumerates Sentinel data connectors in each workspace, joins
+    against the equivalence map in config/defenderXdrEquivalenceMap.json,
+    and emits v2 schema rows for each connector with its migration path.
 
 .DESCRIPTION
-    Pulls the data connector list from each configured workspace via
-    the Sentinel REST API, joins each connector against the
-    equivalence map in config/defenderXdrEquivalenceMap.json, and
-    writes one CSV row per connector with the migration path.
+    Closes Day 2 of the engagement methodology. Categorizes each
+    connector:
 
-    Module 7 of 8 in the Simplicity IT Sentinel to Defender XDR
-    Migration Toolkit orchestrator.
+      - native_xdr      : connector kind has a direct Defender XDR
+                          equivalent and migrates automatically at
+                          onboarding (Defender for Endpoint, Defender
+                          for Office 365, Defender for Identity)
+      - stays_in_logana : connector stays in Log Analytics post-
+                          onboarding; remains queryable via
+                          workspace() in advanced hunting
+      - manual_bridge   : connector needs a Logic Apps bridge or
+                          custom log mapping to project into the
+                          unified portal
+      - unmapped        : connector kind has no entry in the
+                          equivalence map (likely third-party or new);
+                          escalate to manual review
 
-.PARAMETER EnvironmentsFile
-    Path to the sentinelEnvironments.json config.
-
-.PARAMETER AuthMode
-    User (interactive) or App (service principal).
-
-.PARAMETER ClientId
-    App reg client id (required when AuthMode = App).
-
-.PARAMETER ClientSecret
-    SecureString (required when AuthMode = App).
-
-.PARAMETER TenantId
-    Entra tenant id (required when AuthMode = App).
-
-.PARAMETER OutputCsv
-    Path to results.csv. Module appends rows; orchestrator owns the file.
-
-.PARAMETER Append
-    Append to OutputCsv instead of overwriting. Default false.
+    Replaces the prior placeholder implementation (the 2026-06-12
+    fork-plan stub that emitted no rows). Module is now a real Sentinel
+    REST API client.
 
 .NOTES
-    Copyright Simplicity IT Inc., 2026. Licensed MIT.
-    Status: stub. Module shape and CSV row schema are stable; the
-    REST API call + equivalence-map join are placeholders pending
-    integration testing against a real tenant.
+    Copyright Simplicity IT Inc. MIT licensed.
+    Module: Connector Map (Day 2 acceleration).
+    Locked 2026-06-13.
 #>
+
+#Requires -Version 7
+#Requires -Modules Az.Accounts
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$EnvironmentsFile,
-    [ValidateSet("User", "App")][string]$AuthMode = "User",
+    [ValidateSet('User', 'App')][string]$AuthMode = 'User',
     [string]$ClientId,
     [SecureString]$ClientSecret,
     [string]$TenantId,
@@ -53,89 +47,121 @@ param(
     [switch]$Append
 )
 
-$ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
-$mapFile = Join-Path $root "config\defenderXdrEquivalenceMap.json"
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '_AddResult-Standalone.ps1')
 
-# Load equivalence map.
-$equivalenceMap = @{}
+$root = Split-Path -Parent $PSScriptRoot
+$mapFile = Join-Path $root 'config\defenderXdrEquivalenceMap.json'
+
+$map = @{}
 if (Test-Path $mapFile) {
-    $equivalenceMap = Get-Content $mapFile -Raw | ConvertFrom-Json -AsHashtable
+    $map = Get-Content $mapFile -Raw | ConvertFrom-Json -AsHashtable
 } else {
-    Write-Warning "Equivalence map not found at $mapFile. Module will mark every connector 'no_mapping_available'."
+    Write-Warning "Equivalence map not found at $mapFile. Every connector will be flagged 'unmapped'."
 }
 
-# Load environments.
-$environments = Get-Content $EnvironmentsFile -Raw | ConvertFrom-Json
+$token = Connect-Sentinel -AuthMode $AuthMode -ClientId $ClientId -ClientSecret $ClientSecret -TenantId $TenantId
+$envs  = Read-Environments -EnvironmentsFile $EnvironmentsFile
+$headers = @{ Authorization = "Bearer $token" }
 
-# Output rows accumulate here and get written at the end.
-$rows = New-Object System.Collections.Generic.List[psobject]
+foreach ($e in $envs) {
+    Write-Host "[ConnectorMap] $($e.workspaceName)" -ForegroundColor Cyan
 
-foreach ($env in $environments) {
-    $subscriptionId = $env.subscriptionId
-    $resourceGroup  = $env.resourceGroup
-    $workspaceName  = $env.workspaceName
-
-    Write-Host "  Workspace: $workspaceName ($subscriptionId/$resourceGroup)"
-
-    # Authenticate per environment if needed.
-    # NOTE: real implementation invokes Connect-AzAccount /
-    # Get-AzAccessToken here; placeholder for the integration test
-    # phase.
-
-    $apiVersion = "2023-02-01-preview"
-    $uri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.OperationalInsights/workspaces/$workspaceName/providers/Microsoft.SecurityInsights/dataConnectors?api-version=$apiVersion"
+    $apiVersion = '2024-09-01'
+    $uri = "https://management.azure.com/subscriptions/$($e.subscriptionId)/resourceGroups/$($e.resourceGroupName)/providers/Microsoft.OperationalInsights/workspaces/$($e.workspaceName)/providers/Microsoft.SecurityInsights/dataConnectors?api-version=$apiVersion"
 
     try {
-        # Placeholder for the actual call:
-        # $response = Invoke-AzRestMethod -Path $uri -Method GET
-        # $connectors = ($response.Content | ConvertFrom-Json).value
-        # Until the integration-test pass lands, we simulate an empty
-        # connector list so the orchestrator wires up cleanly.
-        $connectors = @()
+        $resp = Invoke-RestMethod -Method GET -Uri $uri -Headers $headers -ErrorAction Stop
     } catch {
-        Write-Warning "Failed to enumerate connectors for $workspaceName : $($_.Exception.Message)"
-        $connectors = @()
+        Write-Warning "Failed to enumerate connectors for $($e.workspaceName): $($_.Exception.Message)"
+        Add-ResultRow -OutputCsv $OutputCsv -Append:$Append `
+            -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+            -Section 'Connector Map' -Status 'WARNING' `
+            -Message "Could not enumerate data connectors: $($_.Exception.Message)" `
+            -CurrentValue 'enumeration failed' `
+            -ExpectedValue 'enumeration succeeds with Microsoft Sentinel Reader role' `
+            -SeverityRationale 'Unable to assess connector portability; manual review required.' `
+            -RemediationActionId 'manual.review'
+        continue
     }
 
-    foreach ($conn in $connectors) {
-        $kind = $conn.kind
-        $equiv = if ($equivalenceMap.ContainsKey($kind)) {
-            $equivalenceMap[$kind]
-        } else {
-            @{ defenderXdrEquivalent = "no_mapping_available"; migrationPath = "stays_in_log_analytics"; notes = "" }
-        }
-
-        $status = if ($equiv.defenderXdrEquivalent -eq "no_mapping_available") {
-            "WARNING"
-        } elseif ($equiv.migrationPath -eq "automatic") {
-            "OK"
-        } else {
-            "INFORMATIONAL"
-        }
-
-        $rows.Add([pscustomobject]@{
-            Workspace        = $workspaceName
-            SubscriptionId   = $subscriptionId
-            CheckCategory    = "ConnectorMap"
-            CheckName        = "DefenderXdrEquivalence"
-            ItemName         = $conn.name
-            ItemKind         = $kind
-            Status           = $status
-            DefenderXdrEquiv = $equiv.defenderXdrEquivalent
-            MigrationPath    = $equiv.migrationPath
-            Details          = "Connector kind '$kind' maps to '$($equiv.defenderXdrEquivalent)' via path '$($equiv.migrationPath)'."
-            Recommendation   = $equiv.notes
-        })
+    $connectors = @($resp.value)
+    if ($connectors.Count -eq 0) {
+        Add-ResultRow -OutputCsv $OutputCsv -Append:$Append `
+            -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+            -Section 'Connector Map' -Status 'OK' `
+            -Message 'No data connectors configured on this workspace.'
+        continue
     }
+
+    $passed = 0
+    foreach ($c in $connectors) {
+        $name = if ($c.name) { $c.name } else { 'unnamed' }
+        $kind = if ($c.kind) { $c.kind } else { 'unknown' }
+
+        $equiv = if ($map.ContainsKey($kind)) { $map[$kind] } else { $null }
+
+        if (-not $equiv) {
+            Add-ResultRow -OutputCsv $OutputCsv -Append:$Append `
+                -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+                -Section 'Connector Map' -Status 'WARNING' -SubItem $name `
+                -Message "Connector kind '$kind' has no Defender XDR equivalence-map entry; escalate to manual review" `
+                -CurrentValue "kind = $kind" `
+                -ExpectedValue 'kind present in defenderXdrEquivalenceMap.json' `
+                -SeverityRationale 'Unknown connector kind; cannot determine migration path without manual mapping.' `
+                -RemediationActionId 'connector.region.review'
+            continue
+        }
+
+        $defenderXdrEquiv = $equiv.defenderXdrEquivalent
+        $migrationPath    = $equiv.migrationPath
+        $notes            = if ($equiv.notes) { $equiv.notes } else { '' }
+
+        switch ($migrationPath) {
+            'automatic' {
+                $passed++
+                Add-ResultRow -OutputCsv $OutputCsv -Append:$Append `
+                    -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+                    -Section 'Connector Map' -Status 'OK' -SubItem $name `
+                    -Message "Connector '$kind' migrates automatically at onboarding to '$defenderXdrEquiv'. $notes"
+            }
+            'stays_in_log_analytics' {
+                Add-ResultRow -OutputCsv $OutputCsv -Append:$Append `
+                    -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+                    -Section 'Connector Map' -Status 'INFORMATIONAL' -SubItem $name `
+                    -Message "Connector '$kind' stays in Log Analytics; remains queryable via workspace() in unified advanced hunting" `
+                    -CurrentValue "kind = $kind, target = $defenderXdrEquiv" `
+                    -ExpectedValue 'cross-tenant query path validated post-onboarding' `
+                    -SeverityRationale "Customer should know the data lives in Log Analytics, not in the unified portal's native schema. $notes" `
+                    -RemediationActionId 'connector.region.review'
+            }
+            'manual_bridge' {
+                Add-ResultRow -OutputCsv $OutputCsv -Append:$Append `
+                    -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+                    -Section 'Connector Map' -Status 'WARNING' -SubItem $name `
+                    -Message "Connector '$kind' needs a Logic Apps bridge or custom-log mapping to project into the unified portal" `
+                    -CurrentValue "kind = $kind, target = $defenderXdrEquiv" `
+                    -ExpectedValue 'Logic Apps bridge configured OR custom log table created in unified portal' `
+                    -SeverityRationale "Without the bridge, data continues to land in Sentinel/Log Analytics but is invisible to unified-portal incident correlation. $notes" `
+                    -RemediationActionId 'connector.region.review'
+            }
+            default {
+                Add-ResultRow -OutputCsv $OutputCsv -Append:$Append `
+                    -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+                    -Section 'Connector Map' -Status 'INFORMATIONAL' -SubItem $name `
+                    -Message "Connector '$kind' has unrecognized migrationPath '$migrationPath'; flag for review" `
+                    -CurrentValue "migrationPath = $migrationPath" `
+                    -ExpectedValue 'one of: automatic | stays_in_log_analytics | manual_bridge' `
+                    -SeverityRationale 'Connector map entry uses a value outside the documented enum; treat as manual review until clarified.' `
+                    -RemediationActionId 'manual.review'
+            }
+        }
+    }
+
+    Add-ResultRow -OutputCsv $OutputCsv -Append:$Append -Type 'score' `
+        -Environment $e.workspaceName -ResourceGroup $e.resourceGroupName -SubscriptionId $e.subscriptionId `
+        -Section 'Connector Map' -Passed $passed -Total $connectors.Count `
+        -Percent ([math]::Round(($passed / $connectors.Count) * 100, 2))
 }
 
-# Write or append.
-$exists = Test-Path $OutputCsv
-if ($Append -and $exists) {
-    $rows | Export-Csv -Path $OutputCsv -Append -NoTypeInformation
-} else {
-    $rows | Export-Csv -Path $OutputCsv -NoTypeInformation
-}
-
-Write-Host "  ConnectorMap wrote $($rows.Count) rows."
+Write-Host "[ConnectorMap] done." -ForegroundColor Green

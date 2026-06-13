@@ -11,12 +11,15 @@ customer, most of it waiting on API calls.
 customer deliverables (executive summary, Day 1 baseline, rule-porting
 checklist, gap register).
 
-**What the toolkit checks today:** the three upstream assessment
-modules (Defender XDR data retention, analytics rules, automation
-rules). The five Simplicity extension modules (workbooks, playbooks,
-hunting queries, watchlists, connector map) are in development; the
-orchestrator prints a "not yet shipped; skipping" notice for each.
-That is expected, not an error.
+**What the toolkit checks today (as of 2026-06-13):** the three
+upstream Mario Cuomo assessment modules (Defender XDR data
+retention, analytics rules, automation rules) PLUS the five
+Simplicity IT extension modules (workbooks portability,
+playbooks/Logic Apps inventory + trigger-rewrite detection, hunting
+queries KQL portability, watchlists rebaselining, connector map +
+Defender XDR equivalence). All eight modules write to the v2
+per-finding schema (FindingId, CurrentValue, ExpectedValue,
+SeverityRationale, RemediationActionId per WARNING row).
 
 ---
 
@@ -133,9 +136,10 @@ $secret = Read-Host -AsSecureString -Prompt "Client secret"
 What it does: authenticates, runs the upstream Defender Adoption
 Helper checks against every workspace in your config, writes the
 combined findings to `output\results.csv`, and opens
-`output\dashboard.html` in your browser when finished. Expect the
-skip notices for modules 2 through 6 described at the top of this
-runbook. Add `-SkipDashboard` if you are running unattended.
+`output\dashboard.html` in your browser when finished. The eight
+modules (3 upstream + 5 Simplicity extensions) all populate the v2
+per-finding columns. Add `-SkipDashboard` if you are running
+unattended.
 
 **Step 8. Review the dashboard before generating anything
 customer-facing.**

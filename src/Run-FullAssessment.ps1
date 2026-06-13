@@ -82,8 +82,11 @@ if (Test-Path $mario) {
     Write-Warning "DefenderAdoptionHelper.ps1 not found; skipping upstream module."
 }
 
-# --- Modules 2-7: Simplicity IT extension modules (planned) ---
-$plannedModules = @(
+# --- Modules 2-6: Simplicity IT extension modules ---
+# All five modules went live 2026-06-13 with the v2 per-finding schema.
+# Modules append directly to results.csv via the shared
+# _AddResult-Standalone.ps1 helper.
+$extensionModules = @(
     "SimplicityWorkbooksInventory.ps1",
     "SimplicityPlaybookInventory.ps1",
     "SimplicityHuntingQueryInventory.ps1",
@@ -91,15 +94,15 @@ $plannedModules = @(
     "SimplicityConnectorMap.ps1"
 )
 $slot = 2
-foreach ($mod in $plannedModules) {
+foreach ($mod in $extensionModules) {
     $path = Join-Path $PSScriptRoot $mod
     if (Test-Path $path) {
-        Write-Host "[$slot/8] Running $mod..." -ForegroundColor Yellow
+        Write-Host "[$slot/6] Running $mod..." -ForegroundColor Yellow
         & $path -EnvironmentsFile $EnvironmentsFile -AuthMode $AuthMode `
             -ClientId $ClientId -ClientSecret $ClientSecret -TenantId $TenantId `
             -OutputCsv $outputCsv -Append
     } else {
-        Write-Host "[$slot/8] $mod not yet shipped; skipping." -ForegroundColor DarkGray
+        Write-Warning "[$slot/6] $mod missing; skipping. Reclone the toolkit."
     }
     $slot++
 }
